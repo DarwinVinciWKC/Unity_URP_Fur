@@ -15,6 +15,10 @@ Shader "Fur/Fur Render" {
         _SpecularIntensity ("Specular Intensity", Range(1, 10)) = 5
         _Gloss ("Gloss", Range(0, 2)) = 0.5
 
+        [Header(Rim)]
+        _RimColor ("Rim Color", Color) = (0, 0, 0, 0)
+        _RimRange ("Rim Range", Range(0, 8)) = 0
+
         [Header(Fur)]
         _FurNoiseTex ("Fur Noise", 2D) = "white" { }
         _FurLength ("Fur Length", Range(0.0, 1)) = 0.5
@@ -79,8 +83,10 @@ Shader "Fur/Fur Render" {
             half _FurThinness;
             half _FurShading;
             half4 _FurForce;
-
             half _FURSTEP;
+
+            half4 _RimColor;
+            half _RimRange;
             CBUFFER_END
 
             Varyings vert(Attributes IN) {
@@ -102,23 +108,25 @@ Shader "Fur/Fur Render" {
             half4 frag(Varyings IN) : SV_Target {
 
                 half3 albedo = tex2D(_MainTex, IN.uv.xy).rgb;
+                albedo -= (pow(1 - _FURSTEP, 3)) * _FurShading;
 
                 float3 worldNormal = normalize(IN.worldNormal);
                 float3 worldLightDir = normalize(_LightDirection);
-                
-                half halfLambert = dot(worldNormal, worldLightDir) * 0.5 + 0.5;
-                half3 diffuse = _FrontLightColor.rgb * albedo * halfLambert * _DiffuseFrontIntensity;
-                
-                half oneMinusHalfLambert = 1 - halfLambert;
-                diffuse += _BackLightColor.rgb * albedo * oneMinusHalfLambert * _DiffuseBackIntensity;
-
-                diffuse -= (pow(1 - _FURSTEP, 3)) * _FurShading;
-
                 float3 viewDir = normalize(_WorldSpaceCameraPos.xyz - IN.worldPos.xyz);
                 float3 halfDir = normalize(worldLightDir + viewDir);
+
+                half rimFactor = pow(1 - saturate(dot(viewDir, worldNormal)), 8 - _RimRange);
+                half4 rim = half4(_RimColor.xyz * rimFactor, 1);
+
+                half halfLambert = dot(worldNormal, worldLightDir) * 0.5 + 0.5;
+                half oneMinusHalfLambert = 1 - halfLambert;
+                
+                half3 diffuse = _FrontLightColor.rgb * albedo * halfLambert * _DiffuseFrontIntensity;
+                diffuse += _BackLightColor.rgb * albedo * oneMinusHalfLambert * _DiffuseBackIntensity;
+
                 half3 specular = _SpecularColor.rgb * pow(max(0, dot(worldNormal, halfDir)), _Gloss * 256) * _SpecularIntensity;
 
-                half3 color = diffuse + specular;
+                half3 color = diffuse + specular + rim;
                 
                 half3 noise = tex2D(_FurNoiseTex, IN.uv.zw * _FurThinness).rgb;
                 half alpha = clamp(noise - (_FURSTEP * _FURSTEP) * _FurDensity, 0, 1);
